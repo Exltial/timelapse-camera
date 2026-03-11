@@ -45,9 +45,14 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({
   const [countdown, setCountdown] = useState<number | null>(null);
   const [capturedCount, setCapturedCount] = useState(0);
 
+  const requestMediaPermission = async () => {
+    const result = await MediaLibrary.requestPermissionsAsync();
+    setMediaPermission(result);
+  };
+
   useEffect(() => {
     requestPermission();
-    MediaLibrary.requestPermissionsAsync().then(setMediaPermission);
+    requestMediaPermission();
   }, []);
 
   if (!permission || !mediaPermission) {

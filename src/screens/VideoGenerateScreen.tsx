@@ -8,7 +8,7 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
-import { Video } from 'expo-av';
+import { Video, ResizeMode } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { useAppStore } from '../store/appStore';
 import { generateId, formatVideoDuration, saveToGallery } from '../utils/helpers';
@@ -182,7 +182,7 @@ export const VideoGenerateScreen: React.FC<VideoGenerateScreenProps> = ({
             source={{ uri: generatedVideoUri }}
             style={styles.video}
             useNativeControls
-            resizeMode="contain"
+            resizeMode={ResizeMode.COVER}
           />
         </View>
       )}
