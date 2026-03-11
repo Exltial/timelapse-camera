@@ -39,6 +39,8 @@ export const VideoGenerateScreen: React.FC<VideoGenerateScreenProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [generatedVideoUri, setGeneratedVideoUri] = useState<string | null>(null);
+  const [shouldCancel, setShouldCancel] = useState(false);
+  const [currentStage, setCurrentStage] = useState('准备中');
 
   if (!project) {
     return (
@@ -50,6 +52,24 @@ export const VideoGenerateScreen: React.FC<VideoGenerateScreenProps> = ({
 
   const sortedPhotos = [...photos].sort((a, b) => a.sequenceNumber - b.sequenceNumber);
 
+  const showCancelAlert = () => {
+    Alert.alert(
+      '取消生成',
+      '确定要取消视频生成吗？',
+      [
+        {
+          text: '继续生成',
+          style: 'cancel',
+        },
+        {
+          text: '取消',
+          style: 'destructive',
+          onPress: () => setShouldCancel(true),
+        },
+      ]
+    );
+  };
+
   const handleGenerateVideo = async () => {
     if (sortedPhotos.length === 0) {
       Alert.alert('提示', '没有照片可以生成视频');
@@ -58,6 +78,27 @@ export const VideoGenerateScreen: React.FC<VideoGenerateScreenProps> = ({
 
     setIsGenerating(true);
     setProgress(0);
+    setShouldCancel(false);
+    setCurrentStage('准备图片');
+
+    // 取消确认
+    const showCancelAlert = () => {
+      Alert.alert(
+        '取消生成',
+        '确定要取消视频生成吗？',
+        [
+          {
+            text: '继续生成',
+            style: 'cancel',
+          },
+          {
+            text: '取消',
+            style: 'destructive',
+            onPress: () => setShouldCancel(true),
+          },
+        ]
+      );
+    };
 
     try {
       // 创建视频输出路径
@@ -69,21 +110,7 @@ export const VideoGenerateScreen: React.FC<VideoGenerateScreenProps> = ({
       // 计算帧率
       const fps = Math.min(30, Math.floor(sortedPhotos.length / project.targetDurationSeconds)) || 24;
 
-      // 模拟视频生成过程
-      // 在实际应用中，这里应该调用 FFmpeg 或原生视频编码 API
-      setProgress(10);
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      
-      setProgress(30);
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      
-      setProgress(60);
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      
-      setProgress(80);
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      
-      // 生成视频（简化版本）
+      // 生成视频（带进度回调）
       await generateVideo(
         sortedPhotos.map((p) => p.uri),
         {
@@ -91,10 +118,28 @@ export const VideoGenerateScreen: React.FC<VideoGenerateScreenProps> = ({
           fps,
           width: sortedPhotos[0]?.width || 1920,
           height: sortedPhotos[0]?.height || 1080,
+          onProgress: (progress) => {
+            const percent = Math.round(progress * 100);
+            setProgress(percent);
+            if (progress < 0.3) {
+              setCurrentStage('准备图片');
+            } else if (progress < 0.8) {
+              setCurrentStage('编码视频');
+            } else {
+              setCurrentStage('保存视频');
+            }
+          },
+          shouldCancel: () => shouldCancel,
         }
       );
       
+      if (shouldCancel) {
+        Alert.alert('已取消', '视频生成已取消');
+        return;
+      }
+      
       setProgress(100);
+      setCurrentStage('完成');
 
       // 添加视频任务记录
       addVideoTask({
@@ -130,11 +175,16 @@ export const VideoGenerateScreen: React.FC<VideoGenerateScreenProps> = ({
           },
         ]
       );
-    } catch (error) {
+    } catch (error: any) {
+      if (error.message === 'cancelled') {
+        console.log('视频生成已取消');
+        return;
+      }
       console.error('视频生成失败:', error);
-      Alert.alert('生成失败', '请稍后重试');
+      Alert.alert('生成失败', error.message || '请稍后重试');
     } finally {
       setIsGenerating(false);
+      setShouldCancel(false);
     }
   };
 
@@ -164,7 +214,7 @@ export const VideoGenerateScreen: React.FC<VideoGenerateScreenProps> = ({
 
       {isGenerating && (
         <View style={styles.progressSection}>
-          <Text style={styles.progressLabel}>正在生成视频...</Text>
+          <Text style={styles.progressLabel}>{currentStage}...</Text>
           <View style={styles.progressBar}>
             <View
               style={[styles.progressFill, { width: `${progress}%` }]}
@@ -172,6 +222,12 @@ export const VideoGenerateScreen: React.FC<VideoGenerateScreenProps> = ({
           </View>
           <Text style={styles.progressText}>{progress}%</Text>
           <ActivityIndicator size="large" color="#007AFF" style={styles.spinner} />
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={showCancelAlert}
+          >
+            <Text style={styles.cancelButtonText}>取消生成</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -294,6 +350,20 @@ const styles = StyleSheet.create({
   },
   spinner: {
     marginTop: 20,
+  },
+  cancelButton: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 14,
+    fontWeight: '600',
   },
   videoSection: {
     backgroundColor: '#fff',

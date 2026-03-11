@@ -1,5 +1,22 @@
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
+import { Platform } from 'react-native';
+
+// 检测 Android 版本
+export const getAndroidVersion = async (): Promise<number> => {
+  if (Platform.OS !== 'android') {
+    return 0;
+  }
+  // 使用 Constants 获取 Android API 级别
+  const { PlatformConstants } = require('react-native');
+  return PlatformConstants.Version || 0;
+};
+
+// 检查是否为 Android 13+ (API 33+)
+export const isAndroid13OrHigher = async (): Promise<boolean> => {
+  const version = await getAndroidVersion();
+  return version >= 33;
+};
 
 // 生成唯一 ID
 export const generateId = (): string => {

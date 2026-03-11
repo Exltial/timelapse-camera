@@ -11,6 +11,7 @@ export interface VideoConfig {
   width: number;
   height: number;
   onProgress?: (progress: number) => void;
+  shouldCancel?: () => boolean;
 }
 
 // FFmpeg 实例缓存
@@ -48,7 +49,7 @@ export const generateVideo = async (
   photoUris: string[],
   config: VideoConfig
 ): Promise<string> => {
-  const { outputUri, fps, width, height, onProgress } = config;
+  const { outputUri, fps, width, height, onProgress, shouldCancel } = config;
   
   console.log(`[VideoGen] 开始生成视频：${photoUris.length} 张照片，${fps}fps，分辨率 ${width}x${height}`);
   
@@ -60,10 +61,14 @@ export const generateVideo = async (
     const tempDir = `${FileSystem.cacheDirectory}timelapse_${Date.now()}`;
     await FileSystem.makeDirectoryAsync(tempDir, { intermediates: true });
     
-    // 将照片复制到临时目录并重命名
+    // 将照片复制到临时目录并重命名（并行处理以提升性能）
     const imageFiles: string[] = [];
-    for (let i = 0; i < photoUris.length; i++) {
-      const uri = photoUris[i];
+    const copyPromises = photoUris.map(async (uri, i) => {
+      // 检查是否取消
+      if (shouldCancel && shouldCancel()) {
+        throw new Error('cancelled');
+      }
+      
       const fileName = `image_${String(i).padStart(4, '0')}.jpg`;
       const destPath = `${tempDir}/${fileName}`;
       
@@ -79,7 +84,10 @@ export const generateVideo = async (
       if (onProgress) {
         onProgress((i + 1) / photoUris.length * 0.3); // 准备阶段占 30%
       }
-    }
+    });
+    
+    // 并行执行所有复制操作
+    await Promise.all(copyPromises);
     
     console.log(`[VideoGen] 已准备 ${imageFiles.length} 张图片`);
     
@@ -92,16 +100,19 @@ export const generateVideo = async (
     // -framerate: 输入帧率
     // -i: 输入文件模式
     // -c:v: 视频编码器 (libx264)
-    // -preset: 编码速度/质量平衡
+    // -preset: 编码速度/质量平衡 (faster 提升性能)
+    // -crf: 质量参数 (23 为默认，值越大质量越低但速度越快)
     // -pix_fmt: 像素格式 (yuv420p 兼容性最好)
     // -vf: 视频滤镜 (缩放)
     const command = [
       '-framerate', fps.toString(),
       '-i', inputPattern,
       '-c:v', 'libx264',
-      '-preset', 'medium',
+      '-preset', 'faster',
+      '-crf', '23',
       '-pix_fmt', 'yuv420p',
       '-vf', `scale=${width}:${height}`,
+      '-threads', '0', // 自动选择线程数
       '-y', // 覆盖输出文件
       outputPath,
     ];
@@ -109,6 +120,10 @@ export const generateVideo = async (
     console.log(`[VideoGen] 执行 FFmpeg 命令: ${command.join(' ')}`);
     
     // 执行 FFmpeg
+    // 检查是否取消
+    if (shouldCancel && shouldCancel()) {
+      throw new Error('cancelled');
+    }
     await ffmpeg.exec(command);
     
     // 报告进度（编码完成）

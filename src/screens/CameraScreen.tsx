@@ -6,13 +6,15 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system';
 import { useAppStore } from '../store/appStore';
 import { Photo } from '../types';
-import { generateId, getProjectDirectory, ensureDirectory } from '../utils/helpers';
+import { generateId, getProjectDirectory, ensureDirectory, isAndroid13OrHigher } from '../utils/helpers';
+import { CountdownOverlay, CaptureButton, ModeSelector } from '../components/camera';
 
 interface CameraScreenProps {
   navigation: any;
@@ -40,19 +42,54 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({
   
   const project = projects.find((p) => p.id === projectId);
   const cameraRef = useRef<CameraView>(null);
+  const timerRef = useRef<NodeJS.Timeout[]>([]);
   
   const [isCapturing, setIsCapturing] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [capturedCount, setCapturedCount] = useState(0);
 
   const requestMediaPermission = async () => {
-    const result = await MediaLibrary.requestPermissionsAsync();
-    setMediaPermission(result);
+    try {
+      // Android 13+ 使用新的媒体权限
+      const isAndroid13 = await isAndroid13OrHigher();
+      
+      let result: MediaLibrary.PermissionResponse;
+      
+      if (Platform.OS === 'android' && isAndroid13) {
+        // Android 13+ 需要分别请求媒体权限
+        // 注意：expo-media-library 会自动处理 Android 13+ 的新权限
+        result = await MediaLibrary.requestPermissionsAsync();
+      } else {
+        // Android 12 及以下使用传统存储权限
+        result = await MediaLibrary.requestPermissionsAsync();
+      }
+      
+      setMediaPermission(result);
+    } catch (error) {
+      console.error('请求媒体权限失败:', error);
+    }
+  };
+
+  // 辅助函数：创建可清理的定时器
+  const setManagedTimeout = (callback: () => void, delay: number) => {
+    const timer = setTimeout(() => {
+      callback();
+      // 从列表中移除已执行的定时器
+      timerRef.current = timerRef.current.filter(t => t !== timer);
+    }, delay);
+    timerRef.current.push(timer);
+    return timer;
   };
 
   useEffect(() => {
     requestPermission();
     requestMediaPermission();
+    
+    // 清理函数：组件卸载时清理所有定时器
+    return () => {
+      timerRef.current.forEach(clearTimeout);
+      timerRef.current = [];
+    };
   }, []);
 
   if (!permission || !mediaPermission) {
@@ -144,10 +181,15 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({
     const interval = project.intervalSeconds * 1000;
 
     for (let i = 0; i < totalCaptures; i++) {
+      // 检查是否应该取消
+      if (!isCapturing) break;
+      
       // 倒计时
       for (let j = 3; j > 0; j--) {
         setCountdown(j);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => {
+          setManagedTimeout(() => resolve(null), 1000);
+        });
       }
       setCountdown(null);
 
@@ -164,7 +206,9 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({
 
       // 如果不是最后一张，等待间隔时间
       if (i < totalCaptures - 1) {
-        await new Promise((resolve) => setTimeout(resolve, interval));
+        await new Promise((resolve) => {
+          setManagedTimeout(() => resolve(null), interval);
+        });
       }
     }
 
@@ -192,11 +236,17 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({
     if (isCapturing) return;
     
     setCountdown(3);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => {
+      setManagedTimeout(() => resolve(null), 1000);
+    });
     setCountdown(2);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => {
+      setManagedTimeout(() => resolve(null), 1000);
+    });
     setCountdown(1);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => {
+      setManagedTimeout(() => resolve(null), 1000);
+    });
     setCountdown(null);
 
     const success = await takePhoto();
@@ -219,11 +269,7 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({
             </TouchableOpacity>
           </View>
 
-          {countdown !== null && (
-            <View style={styles.countdownContainer}>
-              <Text style={styles.countdown}>{countdown}</Text>
-            </View>
-          )}
+          <CountdownOverlay countdown={countdown} />
 
           {isCapturing && (
             <View style={styles.progressContainer}>
@@ -235,36 +281,17 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({
           )}
 
           <View style={styles.controls}>
-            <TouchableOpacity
-              style={[
-                styles.captureButton,
-                isCapturing && styles.captureButtonDisabled,
-              ]}
-              onPress={isCapturing ? undefined : takeSinglePhoto}
-              disabled={isCapturing}
-            >
-              <View style={styles.captureButtonInner} />
-            </TouchableOpacity>
+            <CaptureButton
+              onPress={takeSinglePhoto}
+              isCapturing={isCapturing}
+            />
           </View>
 
-          <View style={styles.modeSelector}>
-            <TouchableOpacity
-              style={styles.modeButton}
-              onPress={takeSinglePhoto}
-              disabled={isCapturing}
-            >
-              <Text style={styles.modeText}>单张</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modeButton, styles.modeButtonActive]}
-              onPress={startTimelapse}
-              disabled={isCapturing}
-            >
-              <Text style={[styles.modeText, styles.modeTextActive]}>
-                延时拍摄
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <ModeSelector
+            onSinglePhoto={takeSinglePhoto}
+            onTimelapse={startTimelapse}
+            disabled={isCapturing}
+          />
         </View>
       </CameraView>
     </View>
@@ -311,19 +338,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
   },
-  countdownContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  countdown: {
-    fontSize: 120,
-    fontWeight: 'bold',
-    color: '#fff',
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 10,
-  },
+
   progressContainer: {
     position: 'absolute',
     top: 120,
@@ -346,51 +361,7 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: 'center',
   },
-  captureButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 4,
-    borderColor: '#fff',
-  },
-  captureButtonDisabled: {
-    opacity: 0.5,
-  },
-  captureButtonInner: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#fff',
-  },
-  modeSelector: {
-    position: 'absolute',
-    bottom: 40,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
-  },
-  modeButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  modeButtonActive: {
-    backgroundColor: '#007AFF',
-  },
-  modeText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  modeTextActive: {
-    color: '#fff',
-  },
+
   permissionText: {
     color: '#fff',
     fontSize: 16,
