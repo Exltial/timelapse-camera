@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "TimeLapse Camera",
+    "slug": "timelapse-camera",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#007AFF"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "需要访问相机以拍摄延时照片",
+        "NSPhotoLibraryUsageDescription": "需要访问相册以保存拍摄的照片和视频",
+        "NSPhotoLibraryAddUsageDescription": "需要保存照片和视频到相册"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#007AFF",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-camera",
+      "expo-media-library"
+    ]
+  }
+}
